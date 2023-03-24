@@ -26,6 +26,10 @@ enum sl_error {
     SL_ERROR_STACK_OVERFLOW = 0x1,
     SL_ERROR_STACK_UNDERFLOW = 0x2,
     SL_ERROR_INVALID_REGISTER = 0x3,
+    SL_ERROR_BLOCK_SPLIT = 0x4,
+    SL_ERROR_BLOCK_MERGE = 0x5,
+    SL_ERROR_BLOCK_ALLOC = 0x6,
+    SL_ERROR_BLOCK_FREE = 0x7,
 };
 
 #define sl_todo()                                                                                                      \
@@ -53,35 +57,23 @@ typedef struct sl_machine_flags sl_machine_flags_t;
 typedef struct sl_instruction sl_instruction_t;
 typedef struct sl_bytecode sl_bytecode_t;
 typedef enum sl_opcode sl_opcode_t;
+typedef struct sl_block sl_block_t;
 // Logic and Control Flow - Instructions, Routines, and Opcodes --------------------------------------------------------
-/*
-    TODO: Floating Point Arithmetic
-        - Implement Subroutines
-    TODO: Bitwise Arithmetic
-        - Define enums and decode logic
-        - Implement subroutines
-    TODO: Branch Instructions
-        - Define enums and decode logic
-        - Implement subroutines
-    TODO: Memory Instructions
-        - Implement subroutines
-        - Implement block memory allocation
-        - Define API interface for memory management
-*/
 enum sl_opcode {
     // clang-format off
-    SL_OPCODE_NOOP      = 0,        // No operation                                             NOOP                                     
-    SL_OPCODE_HALT      = 1,        // Halt the machine                                         HALT 
+    SL_OPCODE_NOOP      = 0x00,     // No operation                                             NOOP                                     
+    SL_OPCODE_HALT      = 0x01,     // Halt the machine                                         HALT 
 
     SL_OPCODE_LOADI     = 0x10,     // Load onto stack using Immediate Mode                     LOADI VALUE
     SL_OPCODE_LOADR     = 0x11,     // Load onto stack using Register Mode                      LOADR REG
     SL_OPCODE_LOADM     = 0x12,     // Load onto stack using Memory Mode                        LOADM ADDR FIELD_OFFSET
     SL_OPCODE_DROP      = 0x13,     // Drop the top of the stack                                DROP
-    SL_OPCODE_STORER    = 0x14,     // Store from stack using Register Mode                     STORER REG
-    SL_OPCODE_STOREM    = 0x15,     // Store from stack using Memory Mode                       STOREM ADDR FIELD_OFFSET
+    SL_OPCODE_STORER    = 0x14,     // Store the 2nd of the stack in the register from 1st      STORER [0] [1]
+    SL_OPCODE_STOREM    = 0x15,     // Store the 2nd of the stack in the address from 1st       STOREM [0] [1] FIELD_OFFSET
 
     SL_OPCODE_DUP       = 0x20,     // Duplicate the top of the stack                           DUP
     SL_OPCODE_SWAP      = 0x21,     // Swap the top two values on the stack                     SWAP
+    SL_OPCODE_ROT       = 0x22,     // Rotate the top three values on the stack                 ROT3
 
     SL_OPCODE_ADD       = 0x30,     // Add the top two values on the stack as integers          ADD
     SL_OPCODE_SUB       = 0x31,     // Subtract the top two values on the stack as integers     SUBI
@@ -97,6 +89,10 @@ enum sl_opcode {
 
     SL_OPCODE_ALLOC     = 0x40,     // Allocate memory, return address to top of stack          ALLOC SIZE
     SL_OPCODE_FREE      = 0x41,     // Free memory at address on top of stack                   FREE 
+
+    SL_OPCODE_JMP       = 0x50,     // Jump to specified address                                JMP ADDR
+    SL_OPCODE_JNE       = 0x51,     // Jump to specified address if stack top not equal to zero JNE ADDR
+    SL_OPCODE_JE        = 0x52,     // Jump to specified address if stack top equal to zero     JE ADDR
     // clang-format on
 };
 
@@ -130,6 +126,7 @@ void sl_routine_storem(sl_machine_t* machine, sl_instruction_t instruction);
 
 void sl_routine_dup(sl_machine_t* machine, sl_instruction_t instruction);
 void sl_routine_swap(sl_machine_t* machine, sl_instruction_t instruction);
+void sl_routine_rot(sl_machine_t* machine, sl_instruction_t instruction);
 
 void sl_routine_add(sl_machine_t* machine, sl_instruction_t instruction);
 void sl_routine_sub(sl_machine_t* machine, sl_instruction_t instruction);
@@ -169,6 +166,8 @@ struct sl_machine {
     // Everything is stored as a 64-bit value
     u64_t stack[SL_MACHINE_STACK_SIZE];
     u64_t registers[SL_MACHINE_REGISTERS];
+    
+    sl_block_t *blocks;
     u64_t memory[SL_MACHINE_MEMORY_SIZE];
 
     u8_t* bytecode;
@@ -183,7 +182,6 @@ void sl_machine_execute(sl_machine_t* machine, sl_routine_t routine, sl_instruct
 // External API
 sl_machine_t* sl_machine_create();
 void sl_machine_destroy(sl_machine_t* machine);
-
 void sl_machine_clear(sl_machine_t* machine);
 void sl_machine_load(sl_machine_t* machine, u8_t* data, u32_t size);
 void sl_machine_launch(sl_machine_t* machine);
@@ -197,6 +195,20 @@ sl_error_t ___sl_machine_read(sl_machine_t* machine, u32_t address, u32_t offset
 sl_error_t ___sl_machine_write(sl_machine_t* machine, u32_t address, u32_t offset);
 sl_error_t ___sl_machine_alloc(sl_machine_t* machine, u32_t size, u32_t* address);
 sl_error_t ___sl_machine_free(sl_machine_t* machine, u32_t address);
+
+// Block Management
+struct sl_block {
+    u8_t allocated;
+    u32_t start;
+    u32_t end;
+    sl_block_t *next;
+};
+
+sl_block_t* sl_block_create(u32_t start, u32_t end);
+void sl_block_destroy(sl_block_t *block);
+sl_error_t sl_block_split(sl_block_t* block, u32_t size);
+sl_error_t sl_block_merge(sl_block_t* block);
+
 // Debugging
 void sl_machine_dump_stack(sl_machine_t* machine);
 void sl_machine_dump_registers(sl_machine_t* machine);
@@ -298,13 +310,76 @@ sl_error_t ___sl_machine_store(sl_machine_t* machine, u32_t index) {
     return SL_ERROR_NONE;
 }
 
-sl_error_t ___sl_machine_read(sl_machine_t* machine, u32_t address, u32_t offset) { sl_todo(); }
+sl_error_t ___sl_machine_read(sl_machine_t* machine, u32_t address, u32_t offset) { 
+    u64_t value;
+    sl_error_t error;
 
-sl_error_t ___sl_machine_write(sl_machine_t* machine, u32_t address, u32_t offset) { sl_todo(); }
+    u64_t* ptr = (u64_t*)(machine->memory + address + offset);
+    value = *ptr;
 
-sl_error_t ___sl_machine_alloc(sl_machine_t* machine, u32_t size, u32_t* address) { sl_todo(); }
+    error = ___sl_machine_push(machine, value);
+    if (error != SL_ERROR_NONE) {
+        return error;
+    }
 
-sl_error_t ___sl_machine_free(sl_machine_t* machine, u32_t address) { sl_todo(); }
+    return SL_ERROR_NONE;
+}
+
+sl_error_t ___sl_machine_write(sl_machine_t* machine, u32_t address, u32_t offset) {
+    u64_t value;
+    sl_error_t error;
+
+    error = ___sl_machine_pop(machine, &value);
+    if (error != SL_ERROR_NONE) {
+        return error;
+    }
+
+    u64_t* ptr = (u64_t*)(machine->memory + address + offset);
+    *ptr = value;
+
+    return SL_ERROR_NONE;
+}
+
+// TODO: Validate Me
+sl_error_t ___sl_machine_alloc(sl_machine_t* machine, u32_t size, u32_t* address) { 
+    sl_block_t* block = machine->blocks;
+    while (block != NULL) {
+        if (block->allocated == 0 && block->end - block->start >= size) {
+            sl_error_t error = sl_block_split(block, size);
+            if (error != SL_ERROR_NONE) {
+                return error;
+            }
+
+            block->allocated = 1;
+            *address = block->start;
+            return SL_ERROR_NONE;
+        }
+
+        block = block->next;
+    }
+
+    return SL_ERROR_BLOCK_ALLOC;
+}
+
+// TODO: Validate Me
+sl_error_t ___sl_machine_free(sl_machine_t* machine, u32_t address) { 
+    sl_block_t* block = machine->memory;
+    while (block != NULL) {
+        if (block->start == address) {
+            block->allocated = 0;
+            sl_error_t error = sl_block_merge(block);
+            if (error != SL_ERROR_NONE) {
+                return error;
+            }
+
+            return SL_ERROR_NONE;
+        }
+
+        block = block->next;
+    }
+
+    return SL_ERROR_BLOCK_FREE;
+}
 // Routines and Operations ---------------------------------------------------------------------------------------------
 void sl_routine_nop(sl_machine_t* machine, sl_instruction_t instruction) {
     printf("NOP\n");
@@ -345,7 +420,17 @@ void sl_routine_loadr(sl_machine_t* machine, sl_instruction_t instruction) {
 
 void sl_routine_loadm(sl_machine_t* machine, sl_instruction_t instruction) {
     printf("LOADM %x, %x\n", instruction.arg1, instruction.arg2);
-    sl_todo();
+
+    u32_t address;
+    u32_t offset;
+    sl_error_t error;
+
+    error = ___sl_machine_pop(machine, &address);
+    sl_machine_except(machine, error);
+
+    error = ___sl_machine_read(machine, address, offset);
+    sl_machine_except(machine, error);
+
     return;
 }
 
@@ -371,8 +456,21 @@ void sl_routine_storer(sl_machine_t* machine, sl_instruction_t instruction) {
 }
 
 void sl_routine_storem(sl_machine_t* machine, sl_instruction_t instruction) {
-    printf("STOREM %d\n", instruction.arg1);
-    sl_todo();
+    printf("STOREM %d\n", instruction.arg1);    
+
+    u64_t value;
+    u64_t address;
+    u64_t offset;
+    sl_error_t error;
+
+    error = ___sl_machine_pop(machine, &address);
+    sl_machine_except(machine, error);
+
+    sl_machine_except(machine, error);
+
+    offset = instruction.arg1;
+    error = ___sl_machine_write(machine, address, offset);
+
     return;
 }
 
@@ -410,6 +508,35 @@ void sl_routine_swap(sl_machine_t* machine, sl_instruction_t instruction) {
     sl_machine_except(machine, error);
 
     error = ___sl_machine_push(machine, b);
+    sl_machine_except(machine, error);
+
+    return;
+}
+
+void sl_routine_rot(sl_machine_t* machine, sl_instruction_t instruction) {
+    printf("ROT\n");
+
+    u64_t a;
+    u64_t b;
+    u64_t c;
+    sl_error_t error;
+
+    error = ___sl_machine_pop(machine, &a);
+    sl_machine_except(machine, error);
+
+    error = ___sl_machine_pop(machine, &b);
+    sl_machine_except(machine, error);
+
+    error = ___sl_machine_pop(machine, &c);
+    sl_machine_except(machine, error);
+
+    error = ___sl_machine_push(machine, b);
+    sl_machine_except(machine, error);
+
+    error = ___sl_machine_push(machine, a);
+    sl_machine_except(machine, error);
+
+    error = ___sl_machine_push(machine, c);
     sl_machine_except(machine, error);
 
     return;
@@ -525,11 +652,12 @@ void sl_routine_alloc(sl_machine_t* machine, sl_instruction_t instruction) {
     u32_t size = instruction.arg1;
     sl_error_t error;
 
-    u64_t address;
-    error = ___sl_machine_pop(machine, &address);
+    u32_t address;
+
+    error = ___sl_machine_alloc(machine, size, &address);
     sl_machine_except(machine, error);
 
-    error = ___sl_machine_alloc(machine, size, (u32_t) address);
+    error = ___sl_machine_push(machine, address);
     sl_machine_except(machine, error);
 
     return;
@@ -589,6 +717,7 @@ sl_routine_t sl_machine_decode(sl_machine_t* machine, sl_instruction_t instructi
     case SL_OPCODE_STOREM: return sl_routine_storem; break;
     case SL_OPCODE_DUP: return sl_routine_dup; break;
     case SL_OPCODE_SWAP: return sl_routine_swap; break;
+    case SL_OPCODE_ROT: return sl_routine_rot; break;
     case SL_OPCODE_ADD: return sl_routine_add; break;
     case SL_OPCODE_SUB: return sl_routine_sub; break;
     case SL_OPCODE_MUL: return sl_routine_mul; break;
@@ -614,6 +743,9 @@ void sl_machine_execute(sl_machine_t* machine, sl_routine_t routine, sl_instruct
 // External API --------------------------------------------------------------------------------------------------------
 sl_machine_t* sl_machine_create() {
     sl_machine_t* machine = malloc(sizeof(sl_machine_t));
+    machine->bytecode = NULL;
+    machine->bytecode_size = 0;
+    machine->blocks = sl_block_create(0, SL_MACHINE_MEMORY_SIZE);
     return machine;
 }
 
@@ -621,6 +753,8 @@ void sl_machine_destroy(sl_machine_t* machine) {
     if (machine->bytecode) {
         free(machine->bytecode);
     }
+
+    sl_block_destroy(machine->blocks);
 
     free(machine);
 }
@@ -651,6 +785,10 @@ void sl_machine_clear(sl_machine_t* machine) {
     // Reset Pointers
     machine->stack_pointer = 0;
     machine->instruction_pointer = 0;
+
+    // Reset Blocks
+    sl_block_destroy(machine->blocks);
+    machine->blocks = sl_block_create(0, SL_MACHINE_MEMORY_SIZE);
 }
 
 void sl_machine_load(sl_machine_t* machine, u8_t* data, u32_t size) {
@@ -665,6 +803,66 @@ void sl_machine_launch(sl_machine_t* machine) {
         sl_machine_execute(machine, routine, instruction);
     }
     printf("Machine halted\n");
+}
+// Block Management ----------------------------------------------------------------------------------------------------
+sl_block_t* sl_block_create(u32_t start, u32_t end) {
+    sl_block_t *block = malloc(sizeof(sl_block_t));
+    if (block == NULL) {
+        return NULL;
+    }
+    block->allocated = 0;
+    block->start = start;
+    block->end = end;
+    block->next = NULL;
+    return block;
+}
+
+void sl_block_destroy(sl_block_t *block) {
+    if (block->next != NULL) {
+        sl_block_destroy(block->next);
+    }
+    free(block);
+}
+
+sl_error_t sl_block_split(sl_block_t* block, u32_t size) {
+    if (block->allocated) {
+        return SL_ERROR_BLOCK_SPLIT;
+    }
+
+    if (block->end - block->start < size) {
+        return SL_ERROR_BLOCK_SPLIT;
+    }
+
+    sl_block_t *new_block = sl_block_create(block->start + size, block->end);
+    if (new_block == NULL) {
+        return SL_ERROR_BLOCK_SPLIT;
+    }
+
+    block->end = block->start + size;
+    new_block->next = block->next;
+    block->next = new_block;
+    return SL_ERROR_NONE;
+}
+
+sl_error_t sl_block_merge(sl_block_t* block) {
+    if (block->allocated) {
+        return SL_ERROR_BLOCK_MERGE;
+    }
+
+    if (block->next == NULL) {
+        return SL_ERROR_BLOCK_MERGE;
+    }
+
+    if (block->next->allocated) {
+        return SL_ERROR_BLOCK_MERGE;
+    }
+
+    block->end = block->next->end;
+    sl_block_t *next = block->next;
+    block->next = next->next;
+    free(next);
+
+    return SL_ERROR_NONE;
 }
 // Debugging -----------------------------------------------------------------------------------------------------------
 void sl_machine_dump_stack(sl_machine_t* machine) {
@@ -710,4 +908,5 @@ int main(void) {
     sl_machine_launch(machine);
     sl_machine_dump_stack(machine);
     sl_machine_dump_registers(machine);
-}
+    sl_machine_dump_memory(machine);    
+}   
