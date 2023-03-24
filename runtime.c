@@ -75,7 +75,6 @@ enum sl_opcode {
     SL_OPCODE_SWAP      = 0x21,     // Swap the top two values on the stack                     SWAP
     SL_OPCODE_ROT       = 0x22,     // Rotate the top three values on the stack                 ROT3
 
-
     SL_OPCODE_ADD       = 0x30,     // Add the top two values on the stack as integers          ADD
     SL_OPCODE_SUB       = 0x31,     // Subtract the top two values on the stack as integers     SUBI
     SL_OPCODE_MUL       = 0x32,     // Multiply the top two values on the stack as integers     MULI
@@ -90,6 +89,10 @@ enum sl_opcode {
 
     SL_OPCODE_ALLOC     = 0x40,     // Allocate memory, return address to top of stack          ALLOC SIZE
     SL_OPCODE_FREE      = 0x41,     // Free memory at address on top of stack                   FREE 
+
+    SL_OPCODE_JMP       = 0x50,     // Jump to specified address                                JMP ADDR
+    SL_OPCODE_JNE       = 0x51,     // Jump to specified address if stack top not equal to zero JNE ADDR
+    SL_OPCODE_JE        = 0x52,     // Jump to specified address if stack top equal to zero     JE ADDR
     // clang-format on
 };
 
@@ -205,6 +208,7 @@ sl_block_t* sl_block_create(u32_t start, u32_t end);
 void sl_block_destroy(sl_block_t *block);
 sl_error_t sl_block_split(sl_block_t* block, u32_t size);
 sl_error_t sl_block_merge(sl_block_t* block);
+
 // Debugging
 void sl_machine_dump_stack(sl_machine_t* machine);
 void sl_machine_dump_registers(sl_machine_t* machine);

@@ -7,9 +7,9 @@ Branch Instructions
     - Define enums and decode logic
     - Implement subroutines
 Memory Instructions
-    - Implement subroutines
+    <!-- - Implement subroutines
     - Implement block memory allocation
-    - Define API interface for memory management
+    - Define API interface for memory management -->
 
 
 LoadI   0x01
