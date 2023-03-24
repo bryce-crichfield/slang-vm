@@ -172,15 +172,13 @@ struct sl_machine {
 };
 
 // Fetch, Decode, Execute
-sl_instruction_t
-sl_machine_fetch(sl_machine_t* machine);
+sl_instruction_t sl_machine_fetch(sl_machine_t* machine);
 sl_routine_t sl_machine_decode(sl_machine_t* machine, sl_instruction_t instruction);
 void sl_machine_execute(sl_machine_t* machine, sl_routine_t routine, sl_instruction_t instruction);
 
 // External API
 sl_machine_t* sl_machine_create();
 void sl_machine_destroy(sl_machine_t* machine);
-
 void sl_machine_clear(sl_machine_t* machine);
 void sl_machine_load(sl_machine_t* machine, u8_t* data, u32_t size);
 void sl_machine_launch(sl_machine_t* machine);
@@ -194,12 +192,8 @@ sl_error_t ___sl_machine_read(sl_machine_t* machine, u32_t address, u32_t offset
 sl_error_t ___sl_machine_write(sl_machine_t* machine, u32_t address, u32_t offset);
 sl_error_t ___sl_machine_alloc(sl_machine_t* machine, u32_t size, u32_t* address);
 sl_error_t ___sl_machine_free(sl_machine_t* machine, u32_t address);
-// Debugging
-void sl_machine_dump_stack(sl_machine_t* machine);
-void sl_machine_dump_registers(sl_machine_t* machine);
-void sl_machine_dump_memory(sl_machine_t* machine);
-// -----------------------------------------------IMPLEMENTATION--------------------------------------------------------
-// TODO: Seperate implementation and declaration
+
+// Block Management
 struct sl_block {
     u8_t allocated;
     u32_t start;
@@ -207,65 +201,14 @@ struct sl_block {
     sl_block_t *next;
 };
 
-sl_block_t *sl_block_create(u32_t start, u32_t end) {
-    sl_block_t *block = malloc(sizeof(sl_block_t));
-    if (block == NULL) {
-        return NULL;
-    }
-    block->allocated = 0;
-    block->start = start;
-    block->end = end;
-    block->next = NULL;
-    return block;
-}
-
-void sl_block_destroy(sl_block_t *block) {
-    if (block->next != NULL) {
-        sl_block_destroy(block->next);
-    }
-    free(block);
-}
-
-sl_error_t sl_block_split(sl_block_t* block, u32_t size) {
-    if (block->allocated) {
-        return SL_ERROR_BLOCK_SPLIT;
-    }
-
-    if (block->end - block->start < size) {
-        return SL_ERROR_BLOCK_SPLIT;
-    }
-
-    sl_block_t *new_block = sl_block_create(block->start + size, block->end);
-    if (new_block == NULL) {
-        return SL_ERROR_BLOCK_SPLIT;
-    }
-
-    block->end = block->start + size;
-    new_block->next = block->next;
-    block->next = new_block;
-    return SL_ERROR_NONE;
-}
-
-sl_error_t sl_block_merge(sl_block_t* block) {
-    if (block->allocated) {
-        return SL_ERROR_BLOCK_MERGE;
-    }
-
-    if (block->next == NULL) {
-        return SL_ERROR_BLOCK_MERGE;
-    }
-
-    if (block->next->allocated) {
-        return SL_ERROR_BLOCK_MERGE;
-    }
-
-    block->end = block->next->end;
-    sl_block_t *next = block->next;
-    block->next = next->next;
-    free(next);
-
-    return SL_ERROR_NONE;
-}
+sl_block_t* sl_block_create(u32_t start, u32_t end);
+void sl_block_destroy(sl_block_t *block);
+sl_error_t sl_block_split(sl_block_t* block, u32_t size);
+sl_error_t sl_block_merge(sl_block_t* block);
+// Debugging
+void sl_machine_dump_stack(sl_machine_t* machine);
+void sl_machine_dump_registers(sl_machine_t* machine);
+void sl_machine_dump_memory(sl_machine_t* machine);
 // ==============================================IMPLEMENTATION=========================================================
 sl_bytecode_t* sl_bytecode_load(const char* filename) {
     // Open the file
@@ -856,6 +799,66 @@ void sl_machine_launch(sl_machine_t* machine) {
         sl_machine_execute(machine, routine, instruction);
     }
     printf("Machine halted\n");
+}
+// Block Management ----------------------------------------------------------------------------------------------------
+sl_block_t* sl_block_create(u32_t start, u32_t end) {
+    sl_block_t *block = malloc(sizeof(sl_block_t));
+    if (block == NULL) {
+        return NULL;
+    }
+    block->allocated = 0;
+    block->start = start;
+    block->end = end;
+    block->next = NULL;
+    return block;
+}
+
+void sl_block_destroy(sl_block_t *block) {
+    if (block->next != NULL) {
+        sl_block_destroy(block->next);
+    }
+    free(block);
+}
+
+sl_error_t sl_block_split(sl_block_t* block, u32_t size) {
+    if (block->allocated) {
+        return SL_ERROR_BLOCK_SPLIT;
+    }
+
+    if (block->end - block->start < size) {
+        return SL_ERROR_BLOCK_SPLIT;
+    }
+
+    sl_block_t *new_block = sl_block_create(block->start + size, block->end);
+    if (new_block == NULL) {
+        return SL_ERROR_BLOCK_SPLIT;
+    }
+
+    block->end = block->start + size;
+    new_block->next = block->next;
+    block->next = new_block;
+    return SL_ERROR_NONE;
+}
+
+sl_error_t sl_block_merge(sl_block_t* block) {
+    if (block->allocated) {
+        return SL_ERROR_BLOCK_MERGE;
+    }
+
+    if (block->next == NULL) {
+        return SL_ERROR_BLOCK_MERGE;
+    }
+
+    if (block->next->allocated) {
+        return SL_ERROR_BLOCK_MERGE;
+    }
+
+    block->end = block->next->end;
+    sl_block_t *next = block->next;
+    block->next = next->next;
+    free(next);
+
+    return SL_ERROR_NONE;
 }
 // Debugging -----------------------------------------------------------------------------------------------------------
 void sl_machine_dump_stack(sl_machine_t* machine) {
