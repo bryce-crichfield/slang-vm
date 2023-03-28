@@ -4,7 +4,7 @@ clear
 
 SOURCES=$(find . -name "*.c")
 LIBS="-lm"
-CFLAGS="-Wall -O3"
+CFLAGS="-Wall -Werror -O3"
 
 set -xe 
 
